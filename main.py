@@ -3,6 +3,11 @@ Claude Agent SDK Demo
 =====================
 This demo shows how to build agents with the Claude Agent SDK.
 
+All examples use ClaudeSDKClient which:
+- Maintains session context across multiple exchanges
+- Supports interrupts, hooks, and custom tools
+- Provides better control over the agent lifecycle
+
 Features demonstrated:
 1. Basic query with streaming
 2. Using built-in tools (Read, Glob, Grep, Bash)
@@ -21,8 +26,7 @@ import asyncio
 from typing import Any
 
 from claude_agent_sdk import (
-    # Core functions
-    query,
+    # Core client
     ClaudeSDKClient,
     ClaudeAgentOptions,
     # Custom tools
@@ -45,28 +49,32 @@ from claude_agent_sdk import (
 async def example_basic_query():
     """
     Simplest usage - send a prompt and stream the response.
-    Each call to query() starts a fresh session.
+    Uses ClaudeSDKClient with async context manager for clean resource handling.
     """
     print("\n" + "=" * 60)
     print("EXAMPLE 1: Basic Query with Streaming")
     print("=" * 60)
 
-    # Stream messages as they arrive
-    async for message in query(
-        prompt="What is 2 + 2? Answer in one sentence.",
+    # Use async context manager for automatic cleanup
+    async with ClaudeSDKClient(
         options=ClaudeAgentOptions(
             # No tools needed for simple questions
             allowed_tools=[]
-        ),
-    ):
-        # Check for the final result
-        if isinstance(message, ResultMessage):
-            print(f"\n✓ Done! Cost: ${message.total_cost_usd:.4f}")
-        # Print assistant text responses
-        elif isinstance(message, AssistantMessage):
-            for block in message.content:
-                if isinstance(block, TextBlock):
-                    print(f"Claude: {block.text}")
+        )
+    ) as client:
+        # Send the prompt
+        await client.query("What is 2 + 2? Answer in one sentence.")
+
+        # Stream messages as they arrive
+        async for message in client.receive_response():
+            # Check for the final result
+            if isinstance(message, ResultMessage):
+                print(f"\n✓ Done! Cost: ${message.total_cost_usd:.4f}")
+            # Print assistant text responses
+            elif isinstance(message, AssistantMessage):
+                for block in message.content:
+                    if isinstance(block, TextBlock):
+                        print(f"Claude: {block.text}")
 
 
 # =============================================================================
@@ -90,8 +98,7 @@ async def example_with_tools():
     print("EXAMPLE 2: Using Built-in Tools")
     print("=" * 60)
 
-    async for message in query(
-        prompt="List the Python files in the current directory using Glob.",
+    async with ClaudeSDKClient(
         options=ClaudeAgentOptions(
             # Specify which tools Claude can use
             allowed_tools=["Glob", "Read"],
@@ -99,20 +106,23 @@ async def example_with_tools():
             permission_mode="bypassPermissions",
             # Working directory for file operations
             cwd=".",
-        ),
-    ):
-        if isinstance(message, ResultMessage):
-            print(f"\n✓ Done! Turns: {message.num_turns}")
-        elif isinstance(message, AssistantMessage):
-            for block in message.content:
-                if isinstance(block, TextBlock):
-                    print(f"Claude: {block.text}")
-                elif isinstance(block, ToolUseBlock):
-                    print(f"🔧 Using tool: {block.name}")
-                elif isinstance(block, ToolResultBlock):
-                    # Tool results can be long, truncate for display
-                    content = str(block.content)[:200]
-                    print(f"📋 Result: {content}...")
+        )
+    ) as client:
+        await client.query("List the Python files in the current directory using Glob.")
+
+        async for message in client.receive_response():
+            if isinstance(message, ResultMessage):
+                print(f"\n✓ Done! Turns: {message.num_turns}")
+            elif isinstance(message, AssistantMessage):
+                for block in message.content:
+                    if isinstance(block, TextBlock):
+                        print(f"Claude: {block.text}")
+                    elif isinstance(block, ToolUseBlock):
+                        print(f"🔧 Using tool: {block.name}")
+                    elif isinstance(block, ToolResultBlock):
+                        # Tool results can be long, truncate for display
+                        content = str(block.content)[:200]
+                        print(f"📋 Result: {content}...")
 
 
 # =============================================================================
@@ -120,7 +130,7 @@ async def example_with_tools():
 # =============================================================================
 async def example_session_continuation():
     """
-    Use ClaudeSDKClient to maintain context across multiple exchanges.
+    ClaudeSDKClient maintains context across multiple exchanges.
     Claude remembers previous messages in the session.
     """
     print("\n" + "=" * 60)
@@ -207,8 +217,6 @@ async def greet(args: dict[str, Any]) -> dict[str, Any]:
 async def example_custom_tools():
     """
     Create custom tools using the @tool decorator and MCP server.
-
-    Note: Uses ClaudeSDKClient for better stability with in-process MCP servers.
     """
     print("\n" + "=" * 60)
     print("EXAMPLE 4: Custom Tools via MCP")
@@ -222,7 +230,6 @@ async def example_custom_tools():
     )
 
     try:
-        # Use ClaudeSDKClient for custom tools (more stable than query())
         async with ClaudeSDKClient(
             options=ClaudeAgentOptions(
                 # Register our MCP server
@@ -267,8 +274,7 @@ async def example_subagents():
     print("EXAMPLE 5: Subagents")
     print("=" * 60)
 
-    async for message in query(
-        prompt="Use the code-analyzer agent to analyze the main.py file in this directory.",
+    async with ClaudeSDKClient(
         options=ClaudeAgentOptions(
             # Main agent needs Task tool to spawn subagents
             allowed_tools=["Task", "Read", "Glob"],
@@ -286,17 +292,20 @@ async def example_subagents():
                     tools=["Read"],
                 ),
             },
-        ),
-    ):
-        if isinstance(message, ResultMessage):
-            print(f"\n✓ Done! Total cost: ${message.total_cost_usd:.4f}")
-        elif isinstance(message, AssistantMessage):
-            for block in message.content:
-                if isinstance(block, TextBlock):
-                    print(f"Claude: {block.text}")
-                elif isinstance(block, ToolUseBlock):
-                    if block.name == "Task":
-                        print(f"🤖 Spawning subagent: {block.input.get('subagent_type')}")
+        )
+    ) as client:
+        await client.query("Use the code-analyzer agent to analyze the main.py file in this directory.")
+
+        async for message in client.receive_response():
+            if isinstance(message, ResultMessage):
+                print(f"\n✓ Done! Total cost: ${message.total_cost_usd:.4f}")
+            elif isinstance(message, AssistantMessage):
+                for block in message.content:
+                    if isinstance(block, TextBlock):
+                        print(f"Claude: {block.text}")
+                    elif isinstance(block, ToolUseBlock):
+                        if block.name == "Task":
+                            print(f"🤖 Spawning subagent: {block.input.get('subagent_type')}")
 
 
 # =============================================================================
