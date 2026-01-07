@@ -1,88 +1,60 @@
 # Claude Agent SDK Demo
 
-A simple, easy-to-understand demo showing how to build AI agents with the [Claude Agent SDK](https://platform.claude.com/docs/en/api/agent-sdk/overview).
-
-## Features Demonstrated
-
-1. **Basic Query** - Send prompts and stream responses
-2. **Built-in Tools** - Use Read, Glob, Grep, Bash, etc.
-3. **Multi-turn Conversations** - Maintain context across exchanges
-4. **Custom Tools** - Create your own tools via MCP
-5. **Subagents** - Delegate to specialized agents
+Demo showing how to build agents with the [Claude Agent SDK](https://platform.claude.com/docs/en/api/agent-sdk/overview).
 
 ## Quick Start
 
-### 1. Install dependencies
-
 ```bash
 uv sync
-```
-
-### 2. Set your API key
-
-```bash
-cp .env.example .env
-# Edit .env and add your ANTHROPIC_API_KEY
-```
-
-Get your API key from [console.anthropic.com](https://console.anthropic.com/).
-
-### 3. Run the demo
-
-```bash
+cp .env.example .env  # Add your ANTHROPIC_API_KEY
 uv run main.py
 ```
 
-## Project Structure
+Get an API key from [console.anthropic.com](https://console.anthropic.com/).
 
-```
-demo/
-├── main.py          # All examples with detailed comments
-├── pyproject.toml   # Project config & dependencies
-├── uv.lock          # Locked dependencies
-├── .env.example     # API key template
-└── README.md        # This file
-```
+## Examples
 
-## Examples Overview
-
-### Example 1: Basic Query
+### 1. Basic Query
 ```python
-async for message in query(prompt="Hello!"):
-    print(message)
+async with ClaudeSDKClient(options=ClaudeAgentOptions(allowed_tools=[])) as client:
+    await client.query("What is 2 + 2?")
+    async for message in client.receive_response():
+        print(message)
 ```
 
-### Example 2: Using Tools
+### 2. Built-in Tools
 ```python
-async for message in query(
-    prompt="List Python files",
-    options=ClaudeAgentOptions(allowed_tools=["Glob"])
-):
-    print(message)
+options = ClaudeAgentOptions(allowed_tools=["Glob", "Read"], permission_mode="bypassPermissions")
 ```
 
-### Example 3: Multi-turn Conversation
+### 3. Multi-turn Conversation
 ```python
-async with ClaudeSDKClient() as client:
+async with ClaudeSDKClient(options=options) as client:
     await client.query("What files are here?")
-    # ... process response ...
-    await client.query("Tell me more about the first one")  # Remembers context!
+    async for msg in client.receive_response(): ...
+
+    await client.query("Tell me more about the first one")  # Retains context
+    async for msg in client.receive_response(): ...
 ```
 
-### Example 4: Custom Tools
+### 4. Custom Tools
 ```python
-@tool("greet", "Say hello", {"name": str})
+@tool(name="greet", description="Say hello", input_schema={"name": str})
 async def greet(args):
     return {"content": [{"type": "text", "text": f"Hello {args['name']}!"}]}
+
+server = create_sdk_mcp_server(name="my_tools", tools=[greet])
+options = ClaudeAgentOptions(mcp_servers={"my_tools": server}, allowed_tools=["mcp__my_tools__greet"])
 ```
 
-### Example 5: Subagents
+### 5. Subagents
 ```python
 options = ClaudeAgentOptions(
+    allowed_tools=["Task", "Read"],
     agents={
         "analyzer": AgentDefinition(
             description="Analyzes code",
-            prompt="You analyze code quality",
+            prompt="Analyze code quality. Be concise.",
             tools=["Read"]
         )
     }
@@ -91,6 +63,5 @@ options = ClaudeAgentOptions(
 
 ## Resources
 
-- [Agent SDK Overview](https://platform.claude.com/docs/en/api/agent-sdk/overview)
-- [Python SDK Reference](https://platform.claude.com/docs/en/api/agent-sdk/python)
-- [Example Agents](https://github.com/anthropics/claude-agent-sdk-demos)
+- [SDK Overview](https://platform.claude.com/docs/en/api/agent-sdk/overview)
+- [Python Reference](https://platform.claude.com/docs/en/api/agent-sdk/python)
